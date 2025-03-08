@@ -65,12 +65,13 @@ def PrintError(error):
     print ("ERROR:", error)
 
 # Helpers for determining platform
+PLATFORM_NAME = platform.system()
 def Windows():
-    return platform.system() == "Windows"
+    return PLATFORM_NAME == "Windows"
 def Linux():
-    return platform.system() == "Linux"
+    return PLATFORM_NAME == "Linux"
 def MacOS():
-    return platform.system() == "Darwin"
+    return PLATFORM_NAME == "Darwin"
 
 if MacOS():
     import apple_utils
