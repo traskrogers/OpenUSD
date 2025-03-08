@@ -1,0 +1,41 @@
+
+Building with settings:
+  USD source directory          D:\a\OpenUSD\OpenUSD
+  USD install directory         D:\a\OpenUSD\OpenUSD\USDinst
+  3rd-party source directory    D:\a\OpenUSD\OpenUSD\USDgen\src
+  3rd-party install directory   D:\a\OpenUSD\OpenUSD\USDinst
+  Build directory               D:\a\OpenUSD\OpenUSD\USDgen\build
+  CMake generator               Visual Studio 16 2019
+  CMake toolset                 Default
+  Downloader                    curl
+
+  Building                      Shared libraries
+    Variant                     Release
+    Target                      
+    UsdValidation               On
+    Imaging                     On
+      Ptex support:             Off
+      OpenVDB support:          Off
+      OpenImageIO support:      Off 
+      OpenColorIO support:      Off 
+      PRMan support:            Off
+      Vulkan support:           Off
+    UsdImaging                  On
+      usdview:                  On
+    MaterialX support           Off
+    Python support              On
+      Python Debug:             Off
+      Python docs:              Off
+    Documentation               Off
+    Tests                       Off
+      Mayapy Tests:             Off
+      AnimX Tests:              Off
+    Examples                    On
+    Tutorials                   On
+    Tools                       On
+    Alembic Plugin              Off
+      HDF5 support:             Off
+    Draco Plugin                Off
+
+  Dependencies                  TBB, OpenSubdiv
+  Build arguments               USD: -DPXR_ENABLE_PRECOMPILED_HEADERS=OFF

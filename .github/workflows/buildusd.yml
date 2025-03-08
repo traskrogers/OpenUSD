@@ -11,7 +11,7 @@ env:
 
 jobs:
   GetUser:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       require-result: ${{ steps.check.outputs.require-result }}
@@ -22,7 +22,7 @@ jobs:
           require: 'write'
           username: ${{ github.event.comment.user.login }}
   GetGitRef:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       ref: ${{ steps.setter.outputs.ref }}
@@ -45,7 +45,7 @@ jobs:
   Linux:
     needs: [GetUser, GetGitRef]
     if: ${{ (github.event.issue.pull_request && contains(github.event.comment.body, '/AzurePipelines run') && needs.GetUser.outputs.require-result == 'true' ) || github.event_name == 'push' }}
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - run: echo ${{ needs.GetUser.outputs.require-result }}
@@ -73,7 +73,8 @@ jobs:
           pip install PySide2 PyOpenGL
       - name: Build USD (dry_run)
         run: |
-          python3 build_scripts/build_usd.py --no-materialx --build USDgen/build --src USDgen/src USDinst -v --dry_run
+          python3 build_scripts/build_usd.py --no-materialx --build USDgen/build --src USDgen/src USDinst -v --dry_run > dry_run.log
+          diff dry_run_baseline_linux.log dry_run.log
       # - name: Save build artifacts to cache
       #   if: steps.cache-usd-build-dependency.outputs.cache-hit != 'true'
       #   uses: actions/cache/save@v4
@@ -122,7 +123,8 @@ jobs:
       - name: Build USD (dry_run)
         run: |
           export PATH=/Applications/CMake.app/Contents/bin:$PATH
-          python3 build_scripts/build_usd.py --no-materialx --generator Xcode --build USDgen/build --src USDgen/src USDinst -v --dry_run
+          python3 build_scripts/build_usd.py --no-materialx --generator Xcode --build USDgen/build --src USDgen/src USDinst -v --dry_run > dry_run.log
+          diff dry_run_baseline_macOS.log dry_run.log
       # - name: Save build artifacts to cache
       #   if: steps.cache-usd-build-dependency.outputs.cache-hit != 'true'
       #   uses: actions/cache/save@v4
@@ -171,7 +173,8 @@ jobs:
           REM build_usd.py. This causes the build to fail, because
           REM the pre-installed boost does not include boost_python27
           call set BOOST_ROOT=
-          python build_scripts/build_usd.py --no-materialx --generator "Visual Studio 16 2019" --build USDgen/build --src USDgen/src USDinst --build-args USD,"-DPXR_ENABLE_PRECOMPILED_HEADERS=OFF" -v --dry_run
+          python build_scripts/build_usd.py --no-materialx --generator "Visual Studio 16 2019" --build USDgen/build --src USDgen/src USDinst --build-args USD,"-DPXR_ENABLE_PRECOMPILED_HEADERS=OFF" -v --dry_run > dry_run.log
+          fc dry_run_baseline_windows.log dry_run.log
         shell: cmd          
       # - name: Save build artifacts to cache
       #   if: steps.cache-usd-build-dependency.outputs.cache-hit != 'true'
