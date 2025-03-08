@@ -3,10 +3,7 @@ name: BuildUSD
 on:
   push:
     branches:
-      - dev
-      - release
-  issue_comment:                                     
-    types: [created]
+      - busd_refactor
 
 env:
   PYTHON_VERSION: "3.9"
