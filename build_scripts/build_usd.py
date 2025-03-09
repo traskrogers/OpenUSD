@@ -21,6 +21,7 @@ import fnmatch
 import glob
 import hashlib
 import locale
+import logging
 import multiprocessing
 import os
 import platform
@@ -35,34 +36,13 @@ import zipfile
 from urllib.request import urlopen
 from shutil import which
 
-# Helpers for printing output
-verbosity = 1
-
-def Print(msg):
-    if verbosity > 0:
-        print(msg)
-
-def PrintWarning(warning):
-    if verbosity > 0:
-        print("WARNING:", warning)
-
-def PrintStatus(status):
-    if verbosity >= 1:
-        print("STATUS:", status)
-
-def PrintInfo(info):
-    if verbosity >= 2:
-        print("INFO:", info)
-
-def PrintCommandOutput(output):
-    if verbosity >= 3:
-        sys.stdout.write(output)
-
-def PrintError(error):
-    if verbosity >= 3 and sys.exc_info()[1] is not None:
+def exitWithError(msg):
+    if logger.isEnabledFor(logging.DEBUG) and sys.exc_info()[1] is not None:
         import traceback
         traceback.print_exc()
-    print ("ERROR:", error)
+    logger.error(msg)
+    sys.exit(1)
+
 
 # Helpers for determining platform
 PLATFORM_NAME = platform.system()
@@ -240,7 +220,7 @@ def GetCPUCount():
 
 def Run(cmd, logCommandOutput = True, env = None):
     """Run the specified command in a subprocess."""
-    PrintInfo('Running "{cmd}"'.format(cmd=cmd))
+    logging.info('Running "{cmd}"'.format(cmd=cmd))
 
     with codecs.open("log.txt", "a", "utf-8") as logfile:
         logfile.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M"))
@@ -257,7 +237,7 @@ def Run(cmd, logCommandOutput = True, env = None):
                 l = p.stdout.readline().decode(GetLocale(), 'replace')
                 if l:
                     logfile.write(l)
-                    PrintCommandOutput(l)
+                    logger.debug(l)
                 elif p.poll() is not None:
                     break
         else:
@@ -265,11 +245,11 @@ def Run(cmd, logCommandOutput = True, env = None):
             p.wait()
 
     if p.returncode != 0:
-        # If verbosity >= 3, we'll have already been printing out command output
+        # If verbosity >= 2, we'll have already been printing out command output
         # so no reason to print the log file again.
-        if verbosity < 3:
+        if verbosity < 2:
             with open("log.txt", "r") as logfile:
-                Print(logfile.read())
+                logger.error(logfile.read())
         raise RuntimeError("Failed to run '{cmd}' in {path}.\nSee {log} for more details."
                            .format(cmd=cmd, path=os.getcwd(), log=os.path.abspath("log.txt")))
 
@@ -297,8 +277,8 @@ def CopyFiles(context, src, dest):
                 "Unable to create {destDir}".format(destDir=instDestDir)) from e
 
     for f in filesToCopy:
-        PrintCommandOutput("Copying {file} to {destDir}\n"
-                           .format(file=f, destDir=instDestDir))
+        logger.debug("Copying {file} to {destDir}\n"
+                      .format(file=f, destDir=instDestDir))
         shutil.copy(f, instDestDir)
 
 def CopyDirectory(context, srcDir, destDir):
@@ -307,8 +287,8 @@ def CopyDirectory(context, srcDir, destDir):
     if os.path.isdir(instDestDir):
         shutil.rmtree(instDestDir)    
 
-    PrintCommandOutput("Copying {srcDir} to {destDir}\n"
-                       .format(srcDir=srcDir, destDir=instDestDir))
+    logger.debug("Copying {srcDir} to {destDir}\n"
+                .format(srcDir=srcDir, destDir=instDestDir))
     shutil.copytree(srcDir, instDestDir)
 
 def AppendCXX11ABIArg(buildFlag, context, buildArgs):
@@ -467,16 +447,15 @@ def GetCMakeVersion():
 
     output_string = GetCommandOutput("cmake --version")
     if not output_string:
-        PrintWarning("Could not determine cmake version -- please install it "
+        logger.warning("Could not determine cmake version -- please install it "
                      "and adjust your PATH")
         return None
 
     # cmake reports, e.g., "... version 3.14.3"
     match = re.search(r"version (\d+)\.(\d+)(\.(\d+))?", output_string)
     if not match:
-        PrintWarning("Could not determine cmake version")
+        logger.warning("Could not determine cmake version")
         return None
-
     major, minor, patch_group, patch = match.groups()
     if patch_group is None:
         return (int(major), int(minor))
@@ -504,7 +483,7 @@ def PatchFile(filename, patches, multiLineMatches=False):
     for (oldString, newString) in patches:
         newLines = [s.replace(oldString, newString) for s in newLines]
     if newLines != oldLines:
-        PrintInfo("Patching file {filename} (original in {oldFilename})..."
+        logger.info("Patching file {filename} (original in {oldFilename})..."
                   .format(filename=filename, oldFilename=filename + ".old"))
         shutil.copy(filename, filename + ".old")
         open(filename, 'w').writelines(newLines)
@@ -513,7 +492,7 @@ def DownloadFileWithCurl(url, outputFilename):
     # Don't log command output so that curl's progress
     # meter doesn't get written to the log file.
     Run("curl {progress} -L -o {filename} {url}".format(
-        progress="-#" if verbosity >= 2 else "-s",
+        progress="-#" if verbosity >= 1 else "-s",
         filename=outputFilename, url=url), 
         logCommandOutput=False)
 
@@ -562,10 +541,10 @@ def DownloadURL(url, context, force, extractDir = None,
             os.remove(filename)
 
         if os.path.exists(filename):
-            PrintInfo("{0} already exists, skipping download"
+            logger.info("{0} already exists, skipping download"
                       .format(os.path.abspath(filename)))
         else:
-            PrintInfo("Downloading {0} to {1}"
+            logger.info("Downloading {0} to {1}"
                       .format(url, os.path.abspath(filename)))
 
             # To work around occasional hiccups with downloading from websites
@@ -586,7 +565,7 @@ def DownloadURL(url, context, force, extractDir = None,
                     context.downloader(url, tmpFilename)
                     break
                 except Exception as e:
-                    PrintCommandOutput("Retrying download due to error: {err}\n"
+                    logger.debug("Retrying download due to error: {err}\n"
                                        .format(err=e))
                     lastError = e
             else:
@@ -642,10 +621,10 @@ def DownloadURL(url, context, force, extractDir = None,
                     shutil.rmtree(extractedPath)
 
                 if os.path.isdir(extractedPath):
-                    PrintInfo("Directory {0} already exists, skipping extract"
+                    logger.info("Directory {0} already exists, skipping extract"
                               .format(extractedPath))
                 else:
-                    PrintInfo("Extracting archive to {0}".format(extractedPath))
+                    logger.info("Extracting archive to {0}".format(extractedPath))
 
                     # Extract to a temporary directory then move the contents
                     # to the expected location when complete. This ensures that
@@ -670,9 +649,9 @@ def DownloadURL(url, context, force, extractDir = None,
             raise RuntimeError("Failed to extract archive {filename}: {err}"
                                .format(filename=filename, err=e))
 
+
 ############################################################
 # 3rd-Party Dependencies
-
 AllDependencies = list()
 AllDependenciesByName = dict()
 
@@ -810,9 +789,9 @@ def InstallBoost_Helper(context, force, buildArgs):
                                     expectedSHA256=BOOST_SHA256)
             break
         except Exception as e:
-            PrintWarning(str(e))
+            logger.warning(str(e))
             if url != urls[-1]:
-                PrintWarning("Trying alternative sources")
+                logger.warning("Trying alternative sources")
     else:
         raise RuntimeError("Failed to download boost")
 
@@ -1016,9 +995,9 @@ def InstallTBB_Windows(context, force, buildArgs):
         # On Windows, we simply copy headers and pre-built DLLs to
         # the appropriate location.
         if buildArgs:
-            PrintWarning("Ignoring build arguments {}, TBB is "
-                         "not built from source on this platform."
-                         .format(buildArgs))
+            logger.warning("Ignoring build arguments {}, TBB is "
+                           "not built from source on this platform."
+                           .format(buildArgs))
 
         CopyFiles(context, "bin\\intel64\\vc14\\*.*", "bin")
         CopyFiles(context, "lib\\intel64\\vc14\\*.*", "lib")
@@ -1923,7 +1902,7 @@ parser.add_argument("install_dir", type=str,
                     help="Directory where USD will be installed")
 parser.add_argument("-n", "--dry_run", dest="dry_run", action="store_true",
                     help="Only summarize what would happen")
-                    
+
 group = parser.add_mutually_exclusive_group()
 group.add_argument("-v", "--verbose", action="count", default=1,
                    dest="verbosity",
@@ -2219,6 +2198,26 @@ subgroup.add_argument("--no-animx-tests",
 
 args = parser.parse_args()
 
+verbosity = args.verbosity
+
+# Configure logging
+logger = logging.getLogger('build_usd')
+handler = logging.StreamHandler()
+formatter = logging.Formatter('%(levelname)s: %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+# Set logging level based on verbosity
+if verbosity >= 3:
+    logger.setLevel(logging.DEBUG)
+elif verbosity >= 2:
+    logger.setLevel(logging.INFO)
+elif verbosity >= 1:
+    logger.setLevel(logging.WARNING)
+else:
+    logger.setLevel(logging.ERROR)
+
+
 class InstallContext:
     def __init__(self, args):
         # Assume the USD source directory is in the parent directory
@@ -2398,10 +2397,8 @@ class InstallContext:
 try:
     context = InstallContext(args)
 except Exception as e:
-    PrintError(str(e))
-    sys.exit(1)
+    exitWithError(str(e))
 
-verbosity = args.verbosity
 
 # Augment PATH on Windows so that 3rd-party dependencies can find libraries
 # they depend on. In particular, this is needed for building IlmBase/OpenEXR.
@@ -2472,50 +2469,38 @@ if (Linux() or not context.buildZlib) and ZLIB in requiredDependencies:
 # Error out if user is building monolithic library on windows with draco plugin
 # enabled. This currently results in missing symbols.
 if context.buildDraco and context.buildMonolithic and Windows():
-    PrintError("Draco plugin can not be enabled for monolithic build on Windows")
-    sys.exit(1)
+    exitWithError("Draco plugin can not be enabled for monolithic build on Windows")
 
 # The versions of Embree we currently support do not support oneTBB.
 if context.buildOneTBB and context.buildEmbree:
-    PrintError("Embree support cannot be enabled when building against oneTBB")
-    sys.exit(1)
+    exitWithError("Embree support cannot be enabled when building against oneTBB")
 
 # Error out if user enables Vulkan support but env var VULKAN_SDK is not set.
 if context.enableVulkan and not 'VULKAN_SDK' in os.environ:
-    PrintError("Vulkan support cannot be enabled when VULKAN_SDK environment "
+    exitWithError("Vulkan support cannot be enabled when VULKAN_SDK environment "
                "variable is not set")
-    sys.exit(1)
 
 # Error out if user explicitly enabled components which aren't
 # supported for embedded build targets.
 if MacOSTargetEmbedded(context):
     if "--tests" in sys.argv:
-        PrintError("Cannot build tests for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build tests for embedded build targets")
     if "--python" in sys.argv:
-        PrintError("Cannot build python components for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build python components for embedded build targets")
     if "--examples" in sys.argv:
-        PrintError("Cannot build examples for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build examples for embedded build targets")
     if "--tutorials" in sys.argv:
-        PrintError("Cannot build tutorials for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build tutorials for embedded build targets")
     if "--tools" in sys.argv:
-        PrintError("Cannot build tools for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build tools for embedded build targets")
     if "--openimageio" in sys.argv:
-        PrintError("Cannot build openimageio for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build openimageio for embedded build targets")
     if "--opencolorio" in sys.argv:
-        PrintError("Cannot build opencolorio for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build opencolorio for embedded build targets")
     if "--openvdb" in sys.argv:
-        PrintError("Cannot build openvdb for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build openvdb for embedded build targets")
     if "--vulkan" in sys.argv:
-        PrintError("Cannot build vulkan for embedded build targets")
-        sys.exit(1)
+        exitWithError("Cannot build vulkan for embedded build targets")
 
 # Error out if user explicitly specified building usdview without required
 # components. Otherwise, usdview will be silently disabled. This lets users
@@ -2523,11 +2508,9 @@ if MacOSTargetEmbedded(context):
 # for instance.
 if "--usdview" in sys.argv:
     if not context.buildUsdImaging:
-        PrintError("Cannot build usdview when usdImaging is disabled.")
-        sys.exit(1)
+        exitWithError("Cannot build usdview when usdImaging is disabled.")
     if not context.buildPython:
-        PrintError("Cannot build usdview when Python support is disabled.")
-        sys.exit(1)
+        exitWithError("Cannot build usdview when Python support is disabled.")
 
 dependenciesToBuild = []
 for dep in requiredDependencies:
@@ -2540,15 +2523,13 @@ if (not which("g++") and
     not which("clang") and
     not GetXcodeDeveloperDirectory() and
     not GetVisualStudioCompilerAndVersion()):
-    PrintError("C++ compiler not found -- please install a compiler")
-    sys.exit(1)
+    exitWithError("C++ compiler not found -- please install a compiler")
 
 # Error out if a 64bit version of python interpreter is not being used
 isPython64Bit = (ctypes.sizeof(ctypes.c_voidp) == 8)
 if not isPython64Bit:
-    PrintError("64bit python not found -- please install it and adjust your"
-               "PATH")
-    sys.exit(1)
+    exitWithError("64bit python not found -- please install it and adjust your"
+               " PATH")
 
 if which("cmake"):
     # Check cmake minimum version requirements
@@ -2580,41 +2561,34 @@ if which("cmake"):
 
     cmake_version = GetCMakeVersion()
     if not cmake_version:
-        PrintError("Failed to determine CMake version")
-        sys.exit(1)
+        exitWithError("Failed to determine CMake version")
 
     if cmake_version < cmake_required_version:
         def _JoinVersion(v):
             return ".".join(str(n) for n in v)
-        PrintError("CMake version {req} or later required to build USD, "
+        exitWithError("CMake version {req} or later required to build USD, "
                    "but version found was {found}".format(
                        req=_JoinVersion(cmake_required_version),
                        found=_JoinVersion(cmake_version)))
-        sys.exit(1)
 else:
-    PrintError("CMake not found -- please install it and adjust your PATH")
-    sys.exit(1)
+    exitWithError("CMake not found -- please install it and adjust your PATH")
 
 if context.buildDocs:
     if not which("doxygen"):
-        PrintError("doxygen not found -- please install it and adjust your PATH")
-        sys.exit(1)
+        exitWithError("doxygen not found -- please install it and adjust your PATH")
 
 if context.buildHtmlDocs:
     if not which("dot"):
-        PrintError("dot not found -- please install graphviz and adjust your "
+        exitWithError("dot not found -- please install graphviz and adjust your "
                    "PATH")
-        sys.exit(1)
 
 # Require having built both Python support and Doxygen docs before we can 
 # build Python docs
 if context.buildPythonDocs:
     if not context.buildDocs:
-        PrintError("Cannot build Python docs when doxygen docs are disabled.")
-        sys.exit(1)
+        exitWithError("Cannot build Python docs when doxygen docs are disabled.")
     if not context.buildPython:
-        PrintError("Cannot build Python docs when Python support is disabled.")
-        sys.exit(1)        
+        exitWithError("Cannot build Python docs when Python support is disabled.")
 
 if PYSIDE in requiredDependencies:
     # Special case - we are given the PYSIDEUICBINARY as cmake arg.
@@ -2629,28 +2603,23 @@ if PYSIDE in requiredDependencies:
     pyside2Uic = ["pyside2-uic"]
     found_pyside2Uic = any([which(p) for p in pyside2Uic])
     if not given_pysideUic and not found_pyside2Uic and not found_pyside6Uic:
-        PrintError("PySide's user interface compiler was not found -- please"
+        exitWithError("PySide's user interface compiler was not found -- please"
                    " install PySide2 or PySide6 and adjust your PATH. (Note"
                    " that this program may be named {0} depending on your"
                    " platform)"
                    .format(" or ".join(set(pyside2Uic+pyside6Uic))))
-        sys.exit(1)
 
 if context.buildMayapyTests:
     if not context.buildPython:
-        PrintError("--mayapy-tests requires --python")
-        sys.exit(1)
+        exitWithError("--mayapy-tests requires --python")
     if not context.buildTests:
-        PrintError("--mayapy-tests requires --tests")
-        sys.exit(1)
+        exitWithError("--mayapy-tests requires --tests")
     if not context.mayapyLocation:
-        PrintError("--mayapy-tests requires --mayapy-location")
-        sys.exit(1)
+        exitWithError("--mayapy-tests requires --mayapy-location")
 
 if context.buildAnimXTests:
     if not context.buildTests:
-        PrintError("--animx-tests requires --tests")
-        sys.exit(1)
+        exitWithError("--animx-tests requires --tests")
 
 # Summarize
 summaryMsg = """
@@ -2765,7 +2734,9 @@ summaryMsg = summaryMsg.format(
     buildAnimXTests=("On" if context.buildAnimXTests else "Off"),
     enableHDF5=("On" if context.enableHDF5 else "Off"))
 
-Print(summaryMsg)
+# TODO consider encapsulate the entire summary string creation into a function
+if verbosity > 0:
+    print(summaryMsg)
 
 if args.dry_run:
     sys.exit(0)
@@ -2776,7 +2747,7 @@ pythonDependencies = \
     [dep for dep in dependenciesToBuild if type(dep) is PythonDependency]
 if pythonDependencies:
     for dep in pythonDependencies:
-        Print(dep.getInstructions())
+        logger.warning(dep.getInstructions())
     sys.exit(1)
 
 # Ensure directory structure is created and is writable.
@@ -2790,21 +2761,19 @@ for dir in [context.usdInstDir, context.instDir, context.srcDir,
         else:
             os.makedirs(dir)
     except Exception as e:
-        PrintError("Could not write to directory {dir}. Change permissions "
+        exitWithError("Could not write to directory {dir}. Change permissions "
                    "or choose a different location to install to."
                    .format(dir=dir))
-        sys.exit(1)
 
 try:
     # Download and install 3rd-party dependencies, followed by USD.
     for dep in dependenciesToBuild + [USD]:
-        PrintStatus("Installing {dep}...".format(dep=dep.name))
+        logger.info("Installing {dep}...".format(dep=dep.name))
         dep.installer(context, 
                       buildArgs=context.GetBuildArguments(dep),
                       force=context.ForceBuildDependency(dep))
 except Exception as e:
-    PrintError(str(e))
-    sys.exit(1)
+    exitWithError(str(e))
 
 # Done. Print out a final status message.
 requiredInPythonPath = set([
@@ -2826,26 +2795,26 @@ if Windows():
 
 if MacOS():
     if context.macOSCodesign:
-        apple_utils.Codesign(context.usdInstDir, verbosity > 1)
+        apple_utils.Codesign(context.usdInstDir, verbosity >= 1)
 
 additionalInstructions = any([context.buildPython, context.buildTools, context.buildPrman])
 if additionalInstructions:
-    Print("\nSuccess! To use USD, please ensure that you have:")
+    logger.info("\nSuccess! To use USD, please ensure that you have:")
 else:
-    Print("\nSuccess! USD libraries were built.")
+    logger.info("\nSuccess! USD libraries were built.")
 
 if context.buildPython:
-    Print("""
+    logger.info("""
     The following in your PYTHONPATH environment variable:
     {requiredInPythonPath}""".format(
         requiredInPythonPath="\n    ".join(sorted(requiredInPythonPath))))
 
 if context.buildPython or context.buildTools:
-    Print("""
+    logger.info("""
     The following in your PATH environment variable:
     {requiredInPath}""".format(
         requiredInPath="\n    ".join(sorted(requiredInPath))))
-    
+
 if context.buildPrman:
-    Print("See documentation at http://openusd.org/docs/RenderMan-USD-Imaging-Plugin.html "
-          "for setting up the RenderMan plugin.\n")
+    logger.info("See documentation at http://openusd.org/docs/RenderMan-USD-Imaging-Plugin.html "
+                "for setting up the RenderMan plugin.\n")
