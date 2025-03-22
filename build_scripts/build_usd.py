@@ -14,6 +14,7 @@ if sys.version_info.major == 2:
 
 import argparse
 import codecs
+import configparser
 import contextlib
 import ctypes
 import datetime
@@ -1968,6 +1969,10 @@ https://gcc.gnu.org/onlinedocs/libstdc++/manual/using_dual_abi.html
 """.format(
     libraryList=" ".join(sorted([d.name for d in AllDependencies])))
 
+# Load default values from config file
+config = configparser.ConfigParser()
+config.read("config.ini")
+
 parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
     allow_abbrev=False, description=programDescription)
@@ -1997,7 +2002,8 @@ group.add_argument("--build", type=str,
 BUILD_DEBUG = "debug"
 BUILD_RELEASE = "release"
 BUILD_RELWITHDEBUG = "relwithdebuginfo"
-group.add_argument("--build-variant", default=BUILD_RELEASE,
+group.add_argument("--build-variant", 
+                   default=config.get('BuildOptions', 'build_variant', fallback=BUILD_RELEASE),
                    choices=[BUILD_DEBUG, BUILD_RELEASE, BUILD_RELWITHDEBUG],
                    help=("Build variant for USD and 3rd-party dependencies. "
                          "(default: {})".format(BUILD_RELEASE)))
@@ -2029,10 +2035,11 @@ group.add_argument("--build-python-info", type=str, nargs=4, default=[],
                             'PYTHON_LIBRARY', 'PYTHON_VERSION'),
                    help=("Specify a custom python to use during build"))
 group.add_argument("--force", type=str, action="append", dest="force_build",
-                   default=[],
-                   help=("Force download and build of specified library "
-                         "(see docs above)"))
+                   default=config.get('BuildOptions', 'force_build', fallback='').split(' '),
+                   help=("Force download and build of specified library"))
+
 group.add_argument("--force-all", action="store_true",
+                   default=config.getboolean('BuildOptions', 'force_all', fallback=False),
                    help="Force download and build of all libraries")
 group.add_argument("--generator", type=str,
                    help=("CMake generator to use when building libraries with "
@@ -2043,9 +2050,10 @@ group.add_argument("--toolset", type=str,
 if MacOS():
     codesignDefault = True if apple_utils.IsHostArm() else False
     group.add_argument("--codesign", dest="macos_codesign",
-                       default=codesignDefault, action="store_true",
-                       help=("Enable code signing for macOS builds "
-                             "(defaults to enabled on Apple Silicon)"))
+                       default=config.getboolean('BuildOptions', 'macos_codesign',
+                                                 fallback=apple_utils.IsHostArm()),
+                       action="store_true",
+                       help=("Enable code signing for macOS builds"))
 
 if Linux():
     group.add_argument("--use-cxx11-abi", type=int, choices=[0, 1],
